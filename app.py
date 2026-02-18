@@ -1,125 +1,165 @@
 import streamlit as st
 import yfinance as yf
-import pandas as pd
 import plotly.graph_objects as go
+from datetime import datetime
 
-st.set_page_config(page_title="我的股票实时仪表盘", layout="wide", page_icon="📈", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Stock Radar", layout="wide", page_icon="📈")
 
-st.title("📈 我的股票实时仪表盘")
+# 现代暗黑美化 CSS
+st.markdown('''
+<style>
+    .main {background-color: #0a0a0a;}
+    .header {background-color: #111827; padding: 1rem; border-radius: 12px; margin-bottom: 1.5rem;}
+    .chip {background-color: #1f2937; padding: 0.5rem 1rem; border-radius: 9999px; margin: 0.3rem; display: inline-flex; align-items: center; font-weight: 600;}
+    .stock-card {
+        background-color: #1f2937; padding: 1.5rem; border-radius: 16px; 
+        border: 1px solid #374151; transition: all 0.2s;
+    }
+    .stock-card:hover {border-color: #3b82f6; transform: translateY(-3px);}
+    .positive {color: #22c55e; font-weight: bold;}
+    .negative {color: #ef4444; font-weight: bold;}
+</style>
+''', unsafe_allow_html=True)
 
-# 默认股票（可随时修改）
+# 初始化
 if 'tickers' not in st.session_state:
-    st.session_state.tickers = ['AAPL', 'TSLA', 'NVDA', '600519.SS', '000001.SS']  # 茅台 + 上证指数示例
+    st.session_state.tickers = ['AAPL', 'NVDA', 'TSLA', 'MSFT', '600519.SS']
+if 'view' not in st.session_state:
+    st.session_state.view = 'list'   # list 或 detail
+if 'selected_ticker' not in st.session_state:
+    st.session_state.selected_ticker = None
 
-# 侧边栏管理
-with st.sidebar:
-    st.header("📋 管理股票列表")
-    new_ticker = st.text_input("添加股票代码（如 AAPL 或 600519.SS）")
-    col_add, col_refresh = st.columns(2)
-    with col_add:
-        if st.button("➕ 添加"):
-            if new_ticker and new_ticker.upper() not in [t.upper() for t in st.session_state.tickers]:
-                st.session_state.tickers.append(new_ticker.upper())
-                st.success(f"✅ 已添加 {new_ticker.upper()}")
-                st.rerun()
-    with col_refresh:
-        if st.button("🔄 刷新数据"):
-            st.rerun()
-
-    st.subheader("当前列表")
-    to_remove = st.multiselect("选择删除", st.session_state.tickers)
-    if st.button("🗑 删除选中"):
-        st.session_state.tickers = [t for t in st.session_state.tickers if t not in to_remove]
+# Header（完全模仿第二张图）
+st.markdown('<div class="header">', unsafe_allow_html=True)
+col1, col2, col3 = st.columns([3, 4, 2])
+with col1:
+    st.title("📈 STOCK RADAR")
+with col2:
+    st.caption(f"更新于 {datetime.now().strftime('%Y/%m/%d %H:%M:%S')}   •   Yahoo Finance 真实数据")
+with col3:
+    if st.button("🔄 刷新", use_container_width=True, type="primary"):
         st.rerun()
+st.markdown('</div>', unsafe_allow_html=True)
 
-# 获取数据
-@st.cache_data(ttl=60)  # 60秒自动刷新一次
-def get_stock_data(symbols):
-    data = []
-    for sym in symbols:
+# 自选股芯片区
+st.subheader("自选股")
+chip_container = st.container()
+with chip_container:
+    cols = st.columns(len(st.session_state.tickers) + 1)
+    for i, ticker in enumerate(st.session_state.tickers):
+        with cols[i]:
+            if st.button(f"{ticker} ×", key=f"chip_{ticker}"):
+                st.session_state.tickers.remove(ticker)
+                if st.session_state.selected_ticker == ticker:
+                    st.session_state.selected_ticker = st.session_state.tickers[0] if st.session_state.tickers else None
+                st.rerun()
+
+# 添加按钮（小而精致）
+col_add, _ = st.columns([1, 5])
+with col_add:
+    if st.button("＋ 添加", type="primary", use_container_width=True):
+        st.session_state.show_add = True
+
+# 添加对话框（干净弹出）
+@st.dialog("添加新股票")
+def add_dialog():
+    code = st.text_input("输入股票代码", placeholder="AAPL 或 600519.SS")
+    if st.button("确认添加", type="primary"):
+        if code:
+            upper = code.strip().upper()
+            if upper not in st.session_state.tickers:
+                st.session_state.tickers.append(upper)
+                st.success(f"✅ 已添加 {upper}")
+                st.rerun()
+            else:
+                st.warning("已在列表中")
+        else:
+            st.error("请输入代码")
+if st.session_state.get("show_add", False):
+    add_dialog()
+    st.session_state.show_add = False
+
+# ====================== 主内容 ======================
+if st.session_state.view == 'list':
+    st.subheader(f"📋 股票列表（共 {len(st.session_state.tickers)} 只）")
+    for ticker in st.session_state.tickers:
         try:
-            t = yf.Ticker(sym)
-            info = t.fast_info
-            full_info = t.info
-            name = full_info.get('longName') or full_info.get('shortName') or sym
-            data.append({
-                '名称': name,
-                '代码': sym,
-                '涨跌%': round(info.get('regularMarketChangePercent', 0), 2),
-                '日最高': round(info.get('regularMarketDayHigh', 0), 2),
-                '日最低': round(info.get('regularMarketDayLow', 0), 2),
-                '成交量': f"{int(info.get('regularMarketVolume', 0)):,}",
-                '昨收': round(info.get('regularMarketPreviousClose', 0), 2),
-                '当前价': round(info.get('lastPrice', info.get('regularMarketPrice', 0)), 2)
-            })
+            t = yf.Ticker(ticker)
+            info = t.info
+            fast = t.fast_info
+            name = info.get('longName') or info.get('shortName') or ticker
+            price = fast.get('lastPrice') or info.get('currentPrice', 0)
+            change = info.get('regularMarketChangePercent', 0)
+            high = info.get('regularMarketDayHigh', 0)
+            low = info.get('regularMarketDayLow', 0)
+            vol = info.get('regularMarketVolume', 0)
+            prev = info.get('regularMarketPreviousClose', 0)
+            
+            color_class = "positive" if change >= 0 else "negative"
+            
+            st.markdown(f"""
+            <div class="stock-card">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <div>
+                        <h3 style="margin:0;">{name} <small style="color:#9ca3af;">({ticker})</small></h3>
+                        <h2 style="margin:0.3rem 0;">{price:.2f} <span class="{color_class}">({change:+.2f}%)</span></h2>
+                    </div>
+                </div>
+                <p style="margin:0; color:#9ca3af;">
+                    昨收 {prev:.2f} | 高 {high:.2f} | 低 {low:.2f} | 量 {vol:,}
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            if st.button("📈 查看 K 线 + 机构评级", key=f"view_{ticker}", use_container_width=True):
+                st.session_state.selected_ticker = ticker
+                st.session_state.view = 'detail'
+                st.rerun()
         except:
-            data.append({'名称': sym, '代码': sym, '涨跌%': 0, '日最高': 0, '日最低': 0, '成交量': '0', '昨收': 0, '当前价': 0})
-    return pd.DataFrame(data)
+            st.error(f"{ticker} 加载失败")
 
-df = get_stock_data(st.session_state.tickers)
-
-# 美观表格
-st.subheader(f"📊 我的股票列表（共 {len(df)} 只）")
-def highlight_change(val):
-    return f'color: {"#22c55e" if val > 0 else "#ef4444"}; font-weight: bold;'
-styled = df.style.map(highlight_change, subset=['涨跌%']).format({
-    '涨跌%': '{:.2f}%',
-    '日最高': '{:.2f}', '日最低': '{:.2f}', '昨收': '{:.2f}', '当前价': '{:.2f}'
-})
-st.dataframe(styled, use_container_width=True, hide_index=True)
-
-# 详情页
-st.subheader("🔍 点这里查看详情")
-selected = st.selectbox("选择股票", options=df['代码'], index=0)
-
-if selected:
-    ticker = yf.Ticker(selected)
-    info = ticker.info
-    st.divider()
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("当前价格", f"{info.get('currentPrice', info.get('regularMarketPrice', 0)):.2f}")
-    with col2:
-        change_pct = info.get('currentChangePercent', info.get('regularMarketChangePercent', 0))
-        st.metric("今日涨跌", f"{change_pct:.2f}%", delta=None)
-    with col3:
-        st.metric("目标价", f"{info.get('targetMeanPrice', '暂无'):.2f}" if info.get('targetMeanPrice') else "暂无")
-
-    # K线图
-    st.subheader("📉 K线走势图")
-    tf = st.radio("切换时间框架", ["日K线 (最近1年)", "周K线 (最近5年)", "月K线 (全部历史)"], horizontal=True, key="tf")
-    if "日" in tf:
-        period, interval = "1y", "1d"
-    elif "周" in tf:
-        period, interval = "5y", "1wk"
-    else:
-        period, interval = "max", "1mo"
-
-    hist = ticker.history(period=period, interval=interval)
-    fig = go.Figure(data=[go.Candlestick(
-        x=hist.index,
-        open=hist['Open'], high=hist['High'], low=hist['Low'], close=hist['Close'],
-        increasing_line_color='#22c55e', decreasing_line_color='#ef4444'
-    )])
-    fig.update_layout(height=650, template="plotly_dark", xaxis_title="日期", yaxis_title="价格 (CNY/USD)")
+else:  # detail 页
+    ticker = st.session_state.selected_ticker
+    if st.button("← 返回列表", type="secondary"):
+        st.session_state.view = 'list'
+        st.rerun()
+    
+    t = yf.Ticker(ticker)
+    info = t.info
+    name = info.get('longName') or ticker
+    
+    st.header(f"{name} ({ticker})")
+    
+    # 指标
+    c1, c2, c3, c4 = st.columns(4)
+    with c1: st.metric("当前价", f"{info.get('currentPrice', 0):.2f}")
+    with c2: st.metric("今日涨跌", f"{info.get('regularMarketChangePercent', 0):+.2f}%")
+    with c3: st.metric("日最高", f"{info.get('regularMarketDayHigh', 0):.2f}")
+    with c4: st.metric("目标价", f"{info.get('targetMeanPrice', 'N/A')}")
+    
+    # K线
+    st.subheader("K 线走势图")
+    tf = st.radio("切换周期", ["日K (最近1年)", "周K (最近5年)", "月K (全部历史)"], horizontal=True)
+    period_map = {"日K (最近1年)": ("1y", "1d"), "周K (最近5年)": ("5y", "1wk"), "月K (全部历史)": ("max", "1mo")}
+    period, interval = period_map[tf]
+    
+    hist = t.history(period=period, interval=interval)
+    fig = go.Figure(data=[go.Candlestick(x=hist.index,
+        open=hist['Open'], high=hist['High'],
+        low=hist['Low'], close=hist['Close'],
+        increasing_line_color='#22c55e', decreasing_line_color='#ef4444')])
+    fig.update_layout(height=680, template="plotly_dark")
     st.plotly_chart(fig, use_container_width=True)
-
+    
     # 机构评级
     st.subheader("🏦 机构买入评级")
-    col_a, col_b = st.columns(2)
-    with col_a:
-        st.write(f"**推荐级别**：{info.get('recommendationKey', '暂无').upper()}")
-        st.write(f"**分析师人数**：{info.get('numberOfAnalystOpinions', '暂无')}")
-    with col_b:
-        st.write(f"**平均目标价**：{info.get('targetMeanPrice', '暂无'):.2f}")
-
+    st.write(f"**推荐级别**：{info.get('recommendationKey', '暂无').upper()}")
+    st.write(f"**分析师人数**：{info.get('numberOfAnalystOpinions', '暂无')}")
     try:
-        rec = ticker.recommendations
+        rec = t.recommendations
         if not rec.empty:
-            st.dataframe(rec.tail(10), use_container_width=True)
-        else:
-            st.info("暂无最新机构评级数据")
+            st.dataframe(rec.tail(12), use_container_width=True)
     except:
-        st.info("暂无机构评级数据")
+        st.info("暂无最新机构评级")
 
-st.caption("数据来源于 Yahoo Finance（免费近实时，市场延迟约15分钟） • 刷新页面或点击按钮即可更新 • 完全免费无广告")
+st.caption("数据来自 Yahoo Finance（近实时） • 完全免费 • Grok 专属定制")
