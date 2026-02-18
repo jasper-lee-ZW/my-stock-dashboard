@@ -9,7 +9,6 @@ st.markdown('''
 <style>
     .main {background-color: #0a0a0a; color: #e2e8f0;}
     .header {background-color: #111827; padding: 1rem; border-radius: 16px; margin-bottom: 1.5rem;}
-    .chip {background-color: #1f2937; padding: 8px 16px; border-radius: 9999px; margin: 4px; display: inline-flex; align-items: center; font-weight: 600; font-size: 15px;}
     .stock-card {background-color: #1f2937; padding: 1.5rem; border-radius: 16px; border: 1px solid #374151; transition: all 0.2s;}
     .stock-card:hover {border-color: #3b82f6; transform: translateY(-4px);}
     .price-up {color: #22c55e; font-weight: bold;}
@@ -45,7 +44,7 @@ for i, t in enumerate(st.session_state.tickers):
             st.session_state.tickers.remove(t)
             st.rerun()
 
-# 添加按钮
+# 添加
 col_add, _ = st.columns([1, 6])
 with col_add:
     if st.button("＋ 添加", type="primary", use_container_width=True):
@@ -56,7 +55,6 @@ with col_add:
                 st.success(f"✅ 已添加 {code.upper()}")
                 st.rerun()
 
-# ====================== 列表页 ======================
 if st.session_state.view == 'list':
     st.subheader(f"📋 我的股票列表（共 {len(st.session_state.tickers)} 只）")
     for ticker in st.session_state.tickers:
@@ -95,7 +93,7 @@ if st.session_state.view == 'list':
         except:
             st.error(f"{ticker} 数据加载失败")
 
-else:  # ====================== v4.0 详情页（重点优化） ======================
+else:
     ticker = st.session_state.selected_ticker
     if st.button("← 返回列表", type="secondary"):
         st.session_state.view = 'list'
@@ -107,7 +105,6 @@ else:  # ====================== v4.0 详情页（重点优化） ===============
     current_price = info.get('currentPrice', info.get('regularMarketPrice', 0))
     change_pct = info.get('regularMarketChangePercent', 0)
 
-    # 顶部大价格（完全像参考图）
     st.markdown(f"""
     <div style="background:#1f2937;padding:1.8rem;border-radius:16px;margin-bottom:1.5rem;text-align:center;">
         <h1 style="margin:0;font-size:2.8rem;">{ticker}</h1>
@@ -133,23 +130,30 @@ else:  # ====================== v4.0 详情页（重点优化） ===============
         hist['MA5'] = hist['Close'].rolling(window=5).mean()
         hist['MA20'] = hist['Close'].rolling(window=20).mean()
 
-        # 单主图面板（去掉大成交量，只保留主K线 + MA）
         fig = go.Figure()
         fig.add_trace(go.Candlestick(
             x=hist.index,
             open=hist['Open'], high=hist['High'], low=hist['Low'], close=hist['Close'],
             increasing_line_color='#22c55e', decreasing_line_color='#ef4444'
         ))
-        fig.add_trace(go.Scatter(x=hist.index, y=hist['MA5'], line=dict(color='#fbbf24', width=2.5), name="MA5"))
-        fig.add_trace(go.Scatter(x=hist.index, y=hist['MA20'], line=dict(color='#60a5fa', width=2.5), name="MA20"))
+        fig.add_trace(go.Scatter(x=hist.index, y=hist['MA5'], line=dict(color='#fbbf24', width=2.8), name="MA5"))
+        fig.add_trace(go.Scatter(x=hist.index, y=hist['MA20'], line=dict(color='#60a5fa', width=2.8), name="MA20"))
 
-        # 添加 MA5 / MA20 左上标签（完全像参考图）
-        fig.add_annotation(x=0.02, y=0.96, xref="paper", yref="paper", text="MA5", showarrow=False, font=dict(color="#fbbf24", size=16, family="Arial Black"))
-        fig.add_annotation(x=0.10, y=0.96, xref="paper", yref="paper", text="MA20", showarrow=False, font=dict(color="#60a5fa", size=16, family="Arial Black"))
+        # 醒目左上角标签（完全像参考图）
+        fig.add_annotation(x=0.01, y=0.98, xref="paper", yref="paper",
+                           text="MA5", showarrow=False,
+                           font=dict(color="#fbbf24", size=18, family="Arial Black"),
+                           bgcolor="#1f2937", bordercolor="#fbbf24", borderwidth=2, borderpad=6)
+
+        fig.add_annotation(x=0.09, y=0.98, xref="paper", yref="paper",
+                           text="MA20", showarrow=False,
+                           font=dict(color="#60a5fa", size=18, family="Arial Black"),
+                           bgcolor="#1f2937", bordercolor="#60a5fa", borderwidth=2, borderpad=6)
 
         fig.update_layout(
             height=680,
             template="plotly_dark",
+            showlegend=False,          # ← 关键修复！彻底隐藏右边 legend
             xaxis_rangeslider_visible=False,
             plot_bgcolor="#111827",
             paper_bgcolor="#0a0a0a",
@@ -159,7 +163,7 @@ else:  # ====================== v4.0 详情页（重点优化） ===============
         )
         st.plotly_chart(fig, use_container_width=True)
 
-        # 底部数据栏（完全复刻参考图）
+        # 底部数据栏
         latest = hist.iloc[-1]
         period_change = (latest['Close'] / hist.iloc[0]['Close'] - 1) * 100
         st.markdown(f"""
@@ -173,7 +177,6 @@ else:  # ====================== v4.0 详情页（重点优化） ===============
         </div>
         """, unsafe_allow_html=True)
 
-    # 机构评级
     st.subheader("🏦 机构买入评级")
     st.write(f"**推荐级别**：{info.get('recommendationKey', '暂无').upper()}  **分析师人数**：{info.get('numberOfAnalystOpinions', '暂无')}")
     try:
@@ -183,4 +186,4 @@ else:  # ====================== v4.0 详情页（重点优化） ===============
     except:
         st.info("暂无最新机构评级")
 
-st.caption("数据来自 Yahoo Finance • Grok v4.0 专属定制 • 现在超级接近你第一张参考图了！")
+st.caption("Grok v5.0 终极版 • 这次绝对不一样了！")
